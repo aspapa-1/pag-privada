@@ -277,6 +277,7 @@
   <script>
     "use strict";
 
+    const INITIAL_SELLER = "<?= initialSeller ?>";
     const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbx5JmgYdCTYnvYZpnKATRoN3XEuT88JRi9w1zGLhtOt0cbUb2hqPPNnoWQHkANQ3HXZjw/exec";
     const SELLERS = ["Rocco", "Tobi"];
     const CATALOG = {
@@ -316,14 +317,16 @@
     document.getElementById("globalSearch").addEventListener("input", renderOrders);
 
     const isAppsScript = Boolean(window.google?.script?.run);
-    if (!isAppsScript) {
-      loginScreen.classList.add("hidden");
-      document.getElementById("hostedAppScreen").classList.remove("hidden");
-      document.getElementById("hostedAppFrame").src = APPS_SCRIPT_URL;
-    }
+    if (isAppsScript && SELLERS.includes(INITIAL_SELLER)) login(INITIAL_SELLER);
 
     function login(seller) {
       if (!SELLERS.includes(seller)) return;
+      if (!isAppsScript) {
+        loginScreen.classList.add("hidden");
+        document.getElementById("hostedAppScreen").classList.remove("hidden");
+        document.getElementById("hostedAppFrame").src = `${APPS_SCRIPT_URL}?seller=${encodeURIComponent(seller)}`;
+        return;
+      }
       state.user = seller;
       document.getElementById("currentUser").textContent = seller;
       loginScreen.classList.add("hidden");
