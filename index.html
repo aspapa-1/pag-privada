@@ -264,15 +264,13 @@
         </div>
         <div class="table-footer"><span id="rowCount">0 pedidos</span><span>Los cambios se guardan automáticamente</span></div>
       </section>
-      <p class="footer-note">La preparación y el traspaso interno solo se pueden modificar desde la sesión del dueño del perfume. El backend también debe validar los permisos; ocultar controles en el navegador no constituye seguridad.</p>
+      <p class="footer-note">El acceso a los datos depende de los permisos de Google Sheets. El selector de vendedor organiza los pedidos, pero no autentica si la sesión pertenece realmente a Rocco o Tobi.</p>
     </main>
   </section>
 
   <script>
     "use strict";
 
-    // Reemplaza este valor por la URL de implementación de tu Google Apps Script Web App.
-    const WEB_APP_URL = "REEMPLAZAR_POR_URL_DE_GOOGLE_WEB_APP";
     const SESSION_KEY = "parfumClubSeller";
     const SELLERS = ["Rocco", "Tobi"];
     const CATALOG = {
@@ -428,32 +426,33 @@
     }
 
     async function apiGet(action) {
-      ensureConfigured();
-      const response = await fetch(`${WEB_APP_URL}?action=${encodeURIComponent(action)}`, { method: "GET", redirect: "follow" });
-      if (!response.ok) throw new Error(`Error HTTP ${response.status}`);
-      const data = await response.json();
-      if (data.success === false) throw new Error(data.error || "La API devolvió un error.");
-      return Array.isArray(data) ? data : (data.orders || data.data || []);
+      if (action !== "list") throw new Error(`Acción no válida: ${action}`);
+      return runAppsScript("listOrders");
     }
 
     async function apiPost(payload) {
-      ensureConfigured();
-      const response = await fetch(WEB_APP_URL, {
-        method: "POST",
-        headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify({ ...payload, seller: state.user }),
-        redirect: "follow"
-      });
-      if (!response.ok) throw new Error(`Error HTTP ${response.status}`);
-      const data = await response.json();
-      if (data.success === false) throw new Error(data.error || "La API devolvió un error.");
-      return data;
+      switch (payload.action) {
+        case "create":
+          return runAppsScript("createOrders", payload.orders, state.user);
+        case "update":
+          return runAppsScript("updateOrder", payload.id, payload.field, payload.value, state.user);
+        case "delete":
+          return runAppsScript("deleteOrder", payload.id, state.user);
+        default:
+          throw new Error(`Acción no válida: ${payload.action}`);
+      }
     }
 
-    function ensureConfigured() {
-      if (!WEB_APP_URL.startsWith("https://script.google.com/")) {
-        throw new Error("Configura WEB_APP_URL en el código antes de conectar Google Sheets.");
+    function runAppsScript(functionName, ...args) {
+      if (!window.google?.script?.run) {
+        return Promise.reject(new Error("Abre esta página desde la implementación de Google Apps Script para conectar la hoja."));
       }
+      return new Promise((resolve, reject) => {
+        const runner = window.google.script.run
+          .withSuccessHandler(resolve)
+          .withFailureHandler((error) => reject(new Error(error.message || String(error))));
+        runner[functionName](...args);
+      });
     }
 
     async function loadOrders() {
