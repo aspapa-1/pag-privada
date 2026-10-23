@@ -206,6 +206,7 @@
         <button class="user-button" type="button" data-login="Rocco">Rocco</button>
         <button class="user-button" type="button" data-login="Tobi">Tobi</button>
       </div>
+      <a id="deployedAppLink" class="button button-primary hidden" href="#" target="_blank" rel="noopener">Abrir panel conectado</a>
     </div>
   </section>
 
@@ -271,6 +272,7 @@
   <script>
     "use strict";
 
+    const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzpHLbdZRgjxqBgd4WMRufWh_3XKnr0EM5l8JHQ1DT_v7YzVZOFC_diZM6gz54Y-cikjw/exec";
     const SESSION_KEY = "parfumClubSeller";
     const SELLERS = ["Rocco", "Tobi"];
     const CATALOG = {
@@ -309,8 +311,16 @@
     document.getElementById("refreshButton").addEventListener("click", loadOrders);
     document.getElementById("globalSearch").addEventListener("input", renderOrders);
 
+    const isAppsScript = Boolean(window.google?.script?.run);
     const savedSeller = localStorage.getItem(SESSION_KEY);
-    if (SELLERS.includes(savedSeller)) login(savedSeller);
+    if (isAppsScript && SELLERS.includes(savedSeller)) login(savedSeller);
+    if (!isAppsScript) {
+      document.querySelector(".user-options").classList.add("hidden");
+      document.querySelector(".login-card .subtle").textContent = "Para guardar y consultar pedidos, abre el panel publicado en Google Apps Script.";
+      const deployedAppLink = document.getElementById("deployedAppLink");
+      deployedAppLink.href = APPS_SCRIPT_URL;
+      deployedAppLink.classList.remove("hidden");
+    }
 
     function login(seller) {
       if (!SELLERS.includes(seller)) return;
