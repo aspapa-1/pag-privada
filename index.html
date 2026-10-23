@@ -26,6 +26,8 @@
     button { cursor: pointer; }
     .hidden { display: none !important; }
     .screen { min-height: 100vh; }
+    .hosted-app { position: fixed; inset: 0; z-index: 10; background: var(--canvas); }
+    .hosted-app iframe { display: block; width: 100%; height: 100%; border: 0; }
 
     .login-screen {
       display: grid;
@@ -206,8 +208,11 @@
         <button class="user-button" type="button" data-login="Rocco">Rocco</button>
         <button class="user-button" type="button" data-login="Tobi">Tobi</button>
       </div>
-      <a id="deployedAppLink" class="button button-primary hidden" href="#" target="_blank" rel="noopener">Abrir panel conectado</a>
     </div>
+  </section>
+
+  <section id="hostedAppScreen" class="hosted-app hidden" aria-label="Panel conectado">
+    <iframe id="hostedAppFrame" title="Panel de pedidos conectado a Google Sheets"></iframe>
   </section>
 
   <section id="appScreen" class="screen hidden">
@@ -265,7 +270,7 @@
         </div>
         <div class="table-footer"><span id="rowCount">0 pedidos</span><span>Los cambios se guardan automáticamente</span></div>
       </section>
-      <p class="footer-note">El acceso a los datos depende de los permisos de Google Sheets. El selector de vendedor organiza los pedidos, pero no autentica si la sesión pertenece realmente a Rocco o Tobi.</p>
+      <p class="footer-note">El selector Rocco/Tobi no autentica usuarios. Con el panel público cualquiera que tenga el enlace podría consultar, registrar, cambiar o eliminar pedidos.</p>
     </main>
   </section>
 
@@ -273,7 +278,6 @@
     "use strict";
 
     const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbx5JmgYdCTYnvYZpnKATRoN3XEuT88JRi9w1zGLhtOt0cbUb2hqPPNnoWQHkANQ3HXZjw/exec";
-    const SESSION_KEY = "parfumClubSeller";
     const SELLERS = ["Rocco", "Tobi"];
     const CATALOG = {
       "Afnan 9PM Night Out": "Tobi",
@@ -312,20 +316,15 @@
     document.getElementById("globalSearch").addEventListener("input", renderOrders);
 
     const isAppsScript = Boolean(window.google?.script?.run);
-    const savedSeller = localStorage.getItem(SESSION_KEY);
-    if (isAppsScript && SELLERS.includes(savedSeller)) login(savedSeller);
     if (!isAppsScript) {
-      document.querySelector(".user-options").classList.add("hidden");
-      document.querySelector(".login-card .subtle").textContent = "Para guardar y consultar pedidos, abre el panel publicado en Google Apps Script.";
-      const deployedAppLink = document.getElementById("deployedAppLink");
-      deployedAppLink.href = APPS_SCRIPT_URL;
-      deployedAppLink.classList.remove("hidden");
+      loginScreen.classList.add("hidden");
+      document.getElementById("hostedAppScreen").classList.remove("hidden");
+      document.getElementById("hostedAppFrame").src = APPS_SCRIPT_URL;
     }
 
     function login(seller) {
       if (!SELLERS.includes(seller)) return;
       state.user = seller;
-      localStorage.setItem(SESSION_KEY, seller);
       document.getElementById("currentUser").textContent = seller;
       loginScreen.classList.add("hidden");
       appScreen.classList.remove("hidden");
@@ -334,7 +333,6 @@
     }
 
     function logout() {
-      localStorage.removeItem(SESSION_KEY);
       state.user = "";
       appScreen.classList.add("hidden");
       loginScreen.classList.remove("hidden");
