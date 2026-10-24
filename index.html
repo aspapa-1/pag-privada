@@ -236,8 +236,7 @@
           <label for="orderText" class="eyebrow">Mensaje del pedido</label>
           <textarea id="orderText" placeholder="Hola Parfum Club! Quiero realizar el pedido #1.&#10;Nombre y apellido: Martin Feresin.&#10;&#10;1x Armaf Odyssey Mandarin Sky (5ml) - $8.000&#10;Total: $8.000.&#10;Muchas gracias."></textarea>
           <div class="form-actions">
-            <button id="parseButton" class="button button-secondary" type="button">Procesar pedido</button>
-            <button id="saveButton" class="button button-primary" type="button" disabled>Guardar en Google Sheets</button>
+            <button id="submitOrderButton" class="button button-primary" type="button">Procesar y guardar pedido</button>
           </div>
           <div id="parseMessage" aria-live="polite"></div>
           <div id="preview" class="preview hidden"></div>
@@ -309,8 +308,7 @@
       button.addEventListener("click", () => login(button.dataset.login));
     });
     document.getElementById("logoutButton").addEventListener("click", logout);
-    document.getElementById("parseButton").addEventListener("click", processOrderText);
-    document.getElementById("saveButton").addEventListener("click", saveParsedOrders);
+    document.getElementById("submitOrderButton").addEventListener("click", processAndSaveOrder);
     document.getElementById("refreshButton").addEventListener("click", loadOrders);
     document.getElementById("globalSearch").addEventListener("input", renderOrders);
 
@@ -389,42 +387,30 @@
       return orders;
     }
 
-    function processOrderText() {
+    async function processAndSaveOrder() {
       clearMessage();
       preview.classList.add("hidden");
-      document.getElementById("saveButton").disabled = true;
+      state.parsed = [];
       try {
         state.parsed = parseOrderMessage(document.getElementById("orderText").value.trim());
         renderPreview();
-        showMessage(`Se procesaron ${state.parsed.length} registro(s), separados por unidad.`, "success");
-        document.getElementById("saveButton").disabled = false;
-      } catch (error) {
+        setBusy("submitOrderButton", true, "Procesando y guardando…");
+        await apiPost({ action: "create", orders: state.parsed });
+        document.getElementById("orderText").value = "";
         state.parsed = [];
-        showMessage(error.message, "error");
+        preview.classList.add("hidden");
+        showMessage("Pedido(s) procesado(s) y guardado(s) correctamente.", "success");
+        await loadOrders();
+      } catch (error) {
+        showMessage(state.parsed.length ? `No se pudo guardar: ${error.message}` : error.message, "error");
+      } finally {
+        setBusy("submitOrderButton", false, "Procesar y guardar pedido");
       }
     }
 
     function renderPreview() {
       preview.innerHTML = `<table><thead><tr><th>Pedido</th><th>Cliente</th><th>Vendedor</th><th>Perfume</th><th>Dueño</th><th>Tamaño</th><th>Precio unitario</th></tr></thead><tbody>${state.parsed.map((order) => `<tr><td>#${escapeHtml(order.orderNumber)}</td><td>${escapeHtml(order.customerName)}</td><td>${escapeHtml(order.seller)}</td><td>${escapeHtml(order.perfumeName)}</td><td>${escapeHtml(order.perfumeOwner)}</td><td>${escapeHtml(order.size)}</td><td>${formatPrice(order.unitPrice)}</td></tr>`).join("")}</tbody></table>`;
       preview.classList.remove("hidden");
-    }
-
-    async function saveParsedOrders() {
-      if (!state.parsed.length) return;
-      setBusy("saveButton", true, "Guardando…");
-      try {
-        await apiPost({ action: "create", orders: state.parsed });
-        document.getElementById("orderText").value = "";
-        state.parsed = [];
-        preview.classList.add("hidden");
-        showMessage("Pedido(s) guardado(s) correctamente.", "success");
-        await loadOrders();
-      } catch (error) {
-        showMessage(`No se pudo guardar: ${error.message}`, "error");
-      } finally {
-        setBusy("saveButton", false, "Guardar en Google Sheets");
-        document.getElementById("saveButton").disabled = state.parsed.length === 0;
-      }
     }
 
     async function apiGet(action) {
