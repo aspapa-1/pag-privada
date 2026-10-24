@@ -157,6 +157,12 @@
 
     .toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }
     .toolbar input { width: min(290px, 60vw); min-height: 39px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 9px; }
+    .view-switch { display: flex; gap: 6px; }
+    .view-button { min-height: 39px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 9px; color: var(--muted); background: #fff; font-size: 13px; font-weight: 700; }
+    .view-button[aria-pressed="true"] { border-color: #c8b5f7; color: var(--accent); background: #f7f3ff; }
+    .archive-summary { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin: 0 22px 18px; padding: 16px 18px; border: 1px solid #d8f0e2; border-radius: 12px; background: #f2fbf5; }
+    .archive-summary span { color: var(--muted); font-size: 13px; }
+    .archive-summary strong { color: var(--good); font-size: 20px; }
     .table-wrap { width: 100%; overflow: auto; }
     table.orders { width: 100%; min-width: 1460px; border-collapse: collapse; font-size: 13px; }
     .orders th, .orders td { padding: 12px 11px; border-bottom: 1px solid #edf0f4; text-align: left; vertical-align: middle; }
@@ -246,13 +252,21 @@
       <section class="panel" aria-labelledby="ordersTitle">
         <div class="panel-header">
           <div>
-            <h2 id="ordersTitle">Pedidos cargados</h2>
+            <h2 id="ordersTitle">Pedidos activos</h2>
             <p>Ordena con las flechas y filtra cada columna.</p>
           </div>
           <div class="toolbar">
             <input id="globalSearch" type="search" placeholder="Buscar en todos los pedidos…" aria-label="Buscar en todos los pedidos">
+            <div class="view-switch" role="group" aria-label="Sección de pedidos">
+              <button id="activeOrdersButton" class="view-button" type="button" aria-pressed="true">Activos</button>
+              <button id="archiveOrdersButton" class="view-button" type="button" aria-pressed="false">Archivo</button>
+            </div>
             <button id="refreshButton" class="button button-secondary" type="button">↻ Actualizar</button>
           </div>
+        </div>
+        <div id="archiveSummary" class="archive-summary hidden" aria-live="polite">
+          <span id="archiveCount">0 pedidos entregados</span>
+          <div><span>Total vendido</span> <strong id="archiveTotal">$ 0</strong></div>
         </div>
         <div class="table-wrap">
           <table class="orders">
@@ -296,7 +310,7 @@
       { key: "transferStatus", label: "Traspaso interno", type: "transfer" }
     ];
 
-    const state = { user: "", orders: [], parsed: [], sortKey: "orderNumber", sortDirection: "desc", filters: {} };
+    const state = { user: "", orders: [], parsed: [], sortKey: "orderNumber", sortDirection: "desc", filters: {}, view: "active" };
     const loginScreen = document.getElementById("loginScreen");
     const appScreen = document.getElementById("appScreen");
     const parseMessage = document.getElementById("parseMessage");
@@ -311,6 +325,8 @@
     document.getElementById("submitOrderButton").addEventListener("click", processAndSaveOrder);
     document.getElementById("refreshButton").addEventListener("click", loadOrders);
     document.getElementById("globalSearch").addEventListener("input", renderOrders);
+    document.getElementById("activeOrdersButton").addEventListener("click", () => setOrdersView("active"));
+    document.getElementById("archiveOrdersButton").addEventListener("click", () => setOrdersView("archive"));
 
     if (SELLERS.includes(INITIAL_SELLER)) login(INITIAL_SELLER);
 
@@ -589,9 +605,22 @@
       });
     }
 
+    function setOrdersView(view) {
+      state.view = view;
+      document.getElementById("activeOrdersButton").setAttribute("aria-pressed", String(view === "active"));
+      document.getElementById("archiveOrdersButton").setAttribute("aria-pressed", String(view === "archive"));
+      document.getElementById("ordersTitle").textContent = view === "archive" ? "Archivo de pedidos" : "Pedidos activos";
+      document.getElementById("globalSearch").placeholder = view === "archive" ? "Buscar en el archivo…" : "Buscar en pedidos activos…";
+      document.getElementById("globalSearch").setAttribute("aria-label", view === "archive" ? "Buscar en el archivo" : "Buscar en pedidos activos");
+      document.getElementById("archiveSummary").classList.toggle("hidden", view !== "archive");
+      renderOrders();
+    }
+
     function renderOrders() {
       const query = document.getElementById("globalSearch").value.trim().toLowerCase();
-      const filtered = state.orders.filter((order) => {
+      const archivedOrders = state.orders.filter((order) => order.deliveryStatus === "Entregado");
+      const visibleOrders = state.orders.filter((order) => (order.deliveryStatus === "Entregado") === (state.view === "archive"));
+      const filtered = visibleOrders.filter((order) => {
         const globalMatch = !query || COLUMNS.some((column) => String(order[column.key] ?? "").toLowerCase().includes(query));
         const columnMatch = COLUMNS.every((column) => {
           const filter = state.filters[column.key];
@@ -610,7 +639,15 @@
       const body = document.getElementById("ordersBody");
       body.replaceChildren(...filtered.map(createOrderRow));
       document.getElementById("emptyState").classList.toggle("hidden", filtered.length > 0);
-      document.getElementById("rowCount").textContent = `${filtered.length} de ${state.orders.length} pedido(s)`;
+      const emptyState = document.getElementById("emptyState");
+      emptyState.innerHTML = state.view === "archive"
+        ? "<strong>No hay pedidos archivados</strong>Los pedidos marcados como entregados aparecerán aquí."
+        : "<strong>No hay pedidos activos</strong>Los pedidos pendientes de entrega aparecerán aquí.";
+      document.getElementById("rowCount").textContent = `${filtered.length} de ${visibleOrders.length} pedido(s)`;
+      document.getElementById("activeOrdersButton").textContent = `Activos (${state.orders.length - archivedOrders.length})`;
+      document.getElementById("archiveOrdersButton").textContent = `Archivo (${archivedOrders.length})`;
+      document.getElementById("archiveCount").textContent = `${archivedOrders.length} pedido(s) entregado(s)`;
+      document.getElementById("archiveTotal").textContent = formatPrice(archivedOrders.reduce((total, order) => total + Number(order.unitPrice || 0), 0));
       updateSortIndicators();
     }
 
