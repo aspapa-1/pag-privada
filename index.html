@@ -634,13 +634,18 @@
         const cell = document.createElement("td");
         const value = order[column.key] ?? "";
         if (column.type === "delivery" || column.type === "preparation" || column.type === "transfer") {
+          if (column.type === "transfer" && order.seller === order.perfumeOwner) {
+            cell.textContent = "No requiere";
+            row.append(cell);
+            continue;
+          }
           cell.className = "toggle-cell";
           const label = document.createElement("label");
           label.className = "toggle";
           const checkbox = document.createElement("input");
           checkbox.type = "checkbox";
           checkbox.checked = value === "Entregado" || value === "Preparado" || value === "Entregado al vendedor";
-          checkbox.disabled = column.type !== "delivery" && state.user !== order.perfumeOwner;
+          checkbox.disabled = column.type === "preparation" && state.user !== order.perfumeOwner;
           checkbox.setAttribute("aria-label", `${column.label} para pedido ${order.orderNumber}`);
           checkbox.addEventListener("change", () => updateStatus(order, column, checkbox));
           const text = document.createElement("span");
