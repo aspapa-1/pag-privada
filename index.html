@@ -26,6 +26,7 @@
     button { cursor: pointer; }
     .hidden { display: none !important; }
     .screen { min-height: 100vh; }
+    .apps-script-bridge { position: fixed; left: -2px; bottom: 0; width: 1px; height: 1px; border: 0; opacity: 0; pointer-events: none; }
     .login-screen {
       display: grid;
       place-items: center;
@@ -267,6 +268,8 @@
     </main>
   </section>
 
+  <iframe id="appsScriptBridge" name="appsScriptBridge" class="apps-script-bridge" title="Conexión con Google Sheets" aria-hidden="true"></iframe>
+
   <script>
     "use strict";
 
@@ -299,7 +302,8 @@
     const appScreen = document.getElementById("appScreen");
     const parseMessage = document.getElementById("parseMessage");
     const preview = document.getElementById("preview");
-    const isAppsScript = Boolean(window.google?.script?.run);
+    const pendingRequests = new Map();
+    let nextRequestId = 0;
 
     document.querySelectorAll("[data-login]").forEach((button) => {
       button.addEventListener("click", () => login(button.dataset.login));
@@ -310,14 +314,10 @@
     document.getElementById("refreshButton").addEventListener("click", loadOrders);
     document.getElementById("globalSearch").addEventListener("input", renderOrders);
 
-    if (isAppsScript && SELLERS.includes(INITIAL_SELLER)) login(INITIAL_SELLER);
+    if (SELLERS.includes(INITIAL_SELLER)) login(INITIAL_SELLER);
 
     function login(seller) {
       if (!SELLERS.includes(seller)) return;
-      if (!isAppsScript) {
-        window.location.assign(`${APPS_SCRIPT_URL}?seller=${encodeURIComponent(seller)}`);
-        return;
-      }
       state.user = seller;
       document.getElementById("currentUser").textContent = seller;
       loginScreen.classList.add("hidden");
@@ -429,32 +429,96 @@
 
     async function apiGet(action) {
       if (action !== "list") throw new Error(`Acción no válida: ${action}`);
-      return runAppsScript("listOrders");
+      const response = await runAppsScript("listOrders");
+      if (!Array.isArray(response.orders)) throw new Error("La API devolvió una lista de pedidos inválida.");
+      return response.orders;
     }
 
     async function apiPost(payload) {
       switch (payload.action) {
         case "create":
-          return runAppsScript("createOrders", payload.orders, state.user);
+          return runAppsScript("createOrders", { orders: payload.orders, seller: state.user });
         case "update":
-          return runAppsScript("updateOrder", payload.id, payload.field, payload.value, state.user);
+          return runAppsScript("updateOrder", {
+            id: payload.id,
+            field: payload.field,
+            value: payload.value,
+            seller: state.user
+          });
         case "delete":
-          return runAppsScript("deleteOrder", payload.id, state.user);
+          return runAppsScript("deleteOrder", { id: payload.id, seller: state.user });
         default:
           throw new Error(`Acción no válida: ${payload.action}`);
       }
     }
 
-    function runAppsScript(functionName, ...args) {
-      if (!isAppsScript) {
-        return Promise.reject(new Error("Abre el panel desde el selector para conectar con Google Sheets."));
-      }
+    function runAppsScript(action, payload = {}) {
       return new Promise((resolve, reject) => {
-        const runner = window.google.script.run
-          .withSuccessHandler(resolve)
-          .withFailureHandler((error) => reject(new Error(error.message || String(error))));
-        runner[functionName](...args);
+        const requestId = `${Date.now()}-${++nextRequestId}-${crypto.randomUUID()}`;
+        const timeout = setTimeout(() => {
+          pendingRequests.delete(requestId);
+          reject(new Error("Se agotó el tiempo de espera al conectar con Apps Script."));
+        }, 30000);
+        pendingRequests.set(requestId, { resolve, reject, timeout });
+        if (action === "listOrders") requestJsonp(requestId);
+        else requestFormPost(requestId, action, payload);
       });
+    }
+
+    function requestJsonp(requestId) {
+      const callbackName = `appsScriptCallback${++nextRequestId}`;
+      const script = document.createElement("script");
+      window[callbackName] = (response) => {
+        delete window[callbackName];
+        script.remove();
+        settleRequest(requestId, response);
+      };
+      script.onerror = () => {
+        delete window[callbackName];
+        script.remove();
+        settleRequest(requestId, { success: false, error: "No se pudo acceder a la API de Apps Script." });
+      };
+      script.src = `${APPS_SCRIPT_URL}?action=list&callback=${encodeURIComponent(callbackName)}`;
+      document.head.append(script);
+    }
+
+    function requestFormPost(requestId, action, payload) {
+      const form = document.createElement("form");
+      form.method = "post";
+      form.action = APPS_SCRIPT_URL;
+      form.target = "appsScriptBridge";
+      form.hidden = true;
+
+      const requestField = document.createElement("input");
+      requestField.type = "hidden";
+      requestField.name = "request";
+      requestField.value = JSON.stringify({ requestId, action, payload });
+      form.append(requestField);
+      document.body.append(form);
+      form.submit();
+      form.remove();
+    }
+
+    window.addEventListener("message", (event) => {
+      if (!isAppsScriptOrigin(event.origin)) return;
+      const response = event.data;
+      if (!response || response.type !== "apps-script-response") return;
+      settleRequest(response.requestId, response);
+    });
+
+    function isAppsScriptOrigin(origin) {
+      return origin === "https://script.google.com"
+        || origin === "https://script.googleusercontent.com"
+        || origin.endsWith(".googleusercontent.com");
+    }
+
+    function settleRequest(requestId, response) {
+      const pending = pendingRequests.get(requestId);
+      if (!pending) return;
+      clearTimeout(pending.timeout);
+      pendingRequests.delete(requestId);
+      if (response.success) pending.resolve(response);
+      else pending.reject(new Error(response.error || "Apps Script devolvió un error."));
     }
 
     async function loadOrders() {
