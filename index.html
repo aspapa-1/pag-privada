@@ -26,8 +26,6 @@
     button { cursor: pointer; }
     .hidden { display: none !important; }
     .screen { min-height: 100vh; }
-    .apps-script-bridge { position: fixed; left: -2px; bottom: 0; width: 1px; height: 1px; border: 0; opacity: 0; pointer-events: none; }
-
     .login-screen {
       display: grid;
       place-items: center;
@@ -269,12 +267,11 @@
     </main>
   </section>
 
-  <iframe id="appsScriptBridge" class="apps-script-bridge" title="Conexión segura con Google Sheets" aria-hidden="true"></iframe>
-
   <script>
     "use strict";
 
     const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwg-z5BpjCO7cC8c2BylfGPmXMyQVxju2JB4i4dNvJv4G4WJWQZE1srJXglOww2LgQi/exec";
+    const INITIAL_SELLER = new URLSearchParams(window.location.search).get("seller") || "";
     const SELLERS = ["Rocco", "Tobi"];
     const CATALOG = {
       "Afnan 9PM Night Out": "Tobi",
@@ -302,10 +299,7 @@
     const appScreen = document.getElementById("appScreen");
     const parseMessage = document.getElementById("parseMessage");
     const preview = document.getElementById("preview");
-    const bridgeFrame = document.getElementById("appsScriptBridge");
-    const pendingBridgeCalls = new Map();
-    let bridgeReady = false;
-    let nextBridgeCallId = 0;
+    const isAppsScript = Boolean(window.google?.script?.run);
 
     document.querySelectorAll("[data-login]").forEach((button) => {
       button.addEventListener("click", () => login(button.dataset.login));
@@ -316,34 +310,14 @@
     document.getElementById("refreshButton").addEventListener("click", loadOrders);
     document.getElementById("globalSearch").addEventListener("input", renderOrders);
 
-    window.addEventListener("message", (event) => {
-      if (event.source !== bridgeFrame.contentWindow || !isAppsScriptOrigin(event.origin)) return;
-      const response = event.data;
-      if (!response || response.type !== "apps-script-response") return;
-      const pending = pendingBridgeCalls.get(response.id);
-      if (!pending) return;
-      clearTimeout(pending.timeout);
-      pendingBridgeCalls.delete(response.id);
-      if (response.success) pending.resolve(response.result);
-      else pending.reject(new Error(response.error || "Apps Script devolvió un error."));
-    });
-
-    bridgeFrame.addEventListener("load", () => {
-      bridgeReady = true;
-      pendingBridgeCalls.forEach((pending) => {
-        if (!pending.sent) postBridgeCall(pending);
-      });
-    });
-    bridgeFrame.src = `${APPS_SCRIPT_URL}?bridge=1`;
-
-    function isAppsScriptOrigin(origin) {
-      return origin === "https://script.google.com"
-        || origin === "https://script.googleusercontent.com"
-        || origin.endsWith(".googleusercontent.com");
-    }
+    if (isAppsScript && SELLERS.includes(INITIAL_SELLER)) login(INITIAL_SELLER);
 
     function login(seller) {
       if (!SELLERS.includes(seller)) return;
+      if (!isAppsScript) {
+        window.location.assign(`${APPS_SCRIPT_URL}?seller=${encodeURIComponent(seller)}`);
+        return;
+      }
       state.user = seller;
       document.getElementById("currentUser").textContent = seller;
       loginScreen.classList.add("hidden");
@@ -472,32 +446,15 @@
     }
 
     function runAppsScript(functionName, ...args) {
+      if (!isAppsScript) {
+        return Promise.reject(new Error("Abre el panel desde el selector para conectar con Google Sheets."));
+      }
       return new Promise((resolve, reject) => {
-        const pending = {
-          id: ++nextBridgeCallId,
-          functionName,
-          args,
-          resolve,
-          reject,
-          sent: false,
-          timeout: setTimeout(() => {
-            pendingBridgeCalls.delete(pending.id);
-            reject(new Error("Se agotó el tiempo de espera al conectar con Apps Script. Verifica que la implementación esté publicada para cualquier persona."));
-          }, 20000)
-        };
-        pendingBridgeCalls.set(pending.id, pending);
-        if (bridgeReady) postBridgeCall(pending);
+        const runner = window.google.script.run
+          .withSuccessHandler(resolve)
+          .withFailureHandler((error) => reject(new Error(error.message || String(error))));
+        runner[functionName](...args);
       });
-    }
-
-    function postBridgeCall(pending) {
-      pending.sent = true;
-      bridgeFrame.contentWindow.postMessage({
-        type: "apps-script-request",
-        id: pending.id,
-        functionName: pending.functionName,
-        args: pending.args
-      }, "*");
     }
 
     async function loadOrders() {
