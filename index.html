@@ -235,7 +235,7 @@
         <div class="panel-header">
           <div>
             <h2 id="parserTitle">Carga rápida desde WhatsApp</h2>
-            <p>Pega el mensaje del cliente. Si hay varias unidades, se crea un registro por unidad.</p>
+            <p>Admite pedidos clásicos y combos especiales; cada perfume del combo se carga por separado.</p>
           </div>
         </div>
         <div class="panel-body">
@@ -370,9 +370,44 @@
         const customerMatch = block.match(/Nombre\s+y\s+apellido\s*:\s*([^\r\n.]+)\s*\./i);
         if (!customerMatch) throw new Error(`No se encontró el nombre del cliente en el pedido #${orderNumber}.`);
         const customerName = customerMatch[1].trim();
+        const comboPattern = /^\s*(\d+)\s*x\s+Combo especial\s*[·-]\s*(\d+)\s+decants?\s+de\s+(5ml|10ml)\s+a\s+elección\s*\(\s*(\d+)\s+decants?\s+de\s+(5ml|10ml)\s*:\s*([^)]+)\)\s*-\s*\$\s*([\d.,]+)\s*\.?\s*$/gim;
+        let comboMatch;
+        let hasItem = false;
+        while ((comboMatch = comboPattern.exec(block)) !== null) {
+          hasItem = true;
+          const quantity = Number(comboMatch[1]);
+          const decantCount = Number(comboMatch[2]);
+          const size = comboMatch[3].toLowerCase();
+          const listedDecantCount = Number(comboMatch[4]);
+          const listedSize = comboMatch[5].toLowerCase();
+          const perfumeNames = comboMatch[6].split(",").map((name) => name.trim()).filter(Boolean);
+          if (!Number.isInteger(quantity) || quantity < 1) throw new Error(`Cantidad inválida para el combo del pedido #${orderNumber}.`);
+          if (decantCount !== listedDecantCount || size !== listedSize || perfumeNames.length !== decantCount) {
+            throw new Error(`La cantidad o el tamaño de los decants no coincide en el combo del pedido #${orderNumber}.`);
+          }
+          const comboPrice = parsePrice(comboMatch[7]);
+          const unitPrice = comboPrice / (quantity * perfumeNames.length);
+          for (const perfumeName of perfumeNames) {
+            const ownerEntry = Object.entries(CATALOG).find(([name]) => normalizeName(name) === normalizeName(perfumeName));
+            if (!ownerEntry) throw new Error(`El perfume «${perfumeName}» no está en el catálogo. Agrégalo antes de guardar.`);
+            for (let unit = 0; unit < quantity; unit += 1) {
+              orders.push({
+                orderNumber,
+                customerName,
+                seller: state.user,
+                perfumeName: ownerEntry[0],
+                perfumeOwner: ownerEntry[1],
+                size,
+                unitPrice,
+                deliveryStatus: "Para entregar",
+                preparationStatus: "Pendiente",
+                transferStatus: "Pendiente"
+              });
+            }
+          }
+        }
         const itemPattern = /^\s*(\d+)\s*x\s+(.+?)\s*\((5ml|10ml|Completo)\)\s*-\s*\$\s*([\d.,]+)\s*\.?\s*$/gim;
         let itemMatch;
-        let hasItem = false;
         while ((itemMatch = itemPattern.exec(block)) !== null) {
           hasItem = true;
           const quantity = Number(itemMatch[1]);
